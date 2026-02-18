@@ -1,10 +1,11 @@
+from typing import Callable
 import asyncio
 import httpx
 import time
 
 URL = "http://0.0.0.0:5000/test"
-RATE = 1000
-DURATION = 10
+BATCH = 10
+TIMES = 100
 
 
 async def worker(client: httpx.AsyncClient):
@@ -15,26 +16,47 @@ async def worker(client: httpx.AsyncClient):
         return str(e)
 
 
+async def worker_bad(client: httpx.AsyncClient):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(URL, timeout=20)
+        return response.status_code
+    except Exception as e:
+        return str(e)
+
+
+async def run(client: httpx.AsyncClient, fn: Callable[[httpx.AsyncClient], int | str]):
+    tasks = [asyncio.create_task(fn(client)) for _ in range(BATCH)]
+    results = []
+    for coro in asyncio.as_completed(tasks):
+        results.append(await coro)
+    return results
+
+
 async def main():
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(limits=httpx.Limits(max_connections=100)) as client:
         start = time.monotonic()
-        total_requests = 0
         success_requests = 0
+        coros = [asyncio.create_task(run(client, worker)) for _ in range(TIMES)]
 
-        while time.monotonic() - start < DURATION:
-            tick_start = time.monotonic()
-
-            tasks = [worker(client) for _ in range(RATE)]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            total_requests += len(results)
+        for results in await asyncio.gather(*coros):
             success_requests += sum(1 for r in results if r == 200)
 
-            elapsed = time.monotonic() - tick_start
-            await asyncio.sleep(max(0, 1 - elapsed))
+        finish = time.monotonic() - start
 
         print(
-            f"Sent {success_requests}/{total_requests} successful requests in {DURATION} seconds"
+            f"Sent {success_requests}/{TIMES * BATCH} successful requests in {finish} seconds"
+        )
+
+        coros = [asyncio.create_task(run(client, worker_bad)) for _ in range(TIMES)]
+
+        for results in await asyncio.gather(*coros):
+            success_requests += sum(1 for r in results if r == 200)
+
+        finish = time.monotonic() - start
+
+        print(
+            f"Sent {success_requests}/{TIMES * BATCH} successful requests in {finish} seconds"
         )
 
 
