@@ -58,6 +58,9 @@ async def main():
         print(
             f"Sent {success_requests}/{TIMES * BATCH} successful requests in {finish} seconds"
         )
+        # OUTPUTS:
+        # Sent 1000/1000 successful requests in 44.45776169099986 seconds
+        # Sent 2000/1000 successful requests in 78.44145470199987 seconds
 
 
 asyncio.run(main())
